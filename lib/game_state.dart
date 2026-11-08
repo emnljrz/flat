@@ -326,6 +326,27 @@ Map<Position, Piece> createInitialBoard() {
   return board;
 }
 
+// Snapshot for undo
+class _GameSnapshot {
+  final Map<Position, Piece> board;
+  final PlayerSide currentTurn;
+  final PlayerSide? winner;
+  final bool blueSummonUsed;
+  final bool redSummonUsed;
+  final int turnCounter;
+  final List<String> log;
+
+  _GameSnapshot({
+    required this.board,
+    required this.currentTurn,
+    required this.winner,
+    required this.blueSummonUsed,
+    required this.redSummonUsed,
+    required this.turnCounter,
+    required this.log,
+  });
+}
+
 class GameState extends ChangeNotifier {
   GamePhase _phase = GamePhase.blueDeployment;
   Map<Position, Piece> _board = {};
@@ -344,6 +365,10 @@ class GameState extends ChangeNotifier {
   bool _redSummonUsed = false;
   bool _isSummoning = false;
   List<Position> _summonDestinations = const [];
+
+  int _turnCounter = 1;
+  final List<String> _log = [];
+  final List<_GameSnapshot> _undoStack = [];
 
   GameState({GamePhase initialPhase = GamePhase.blueDeployment}) {
     if (initialPhase == GamePhase.play) {
@@ -368,6 +393,68 @@ class GameState extends ChangeNotifier {
     _legalMoves = const [];
     _attackTargets = const [];
     _healTargets = const [];
+    _summonDestinations = const [];
+    _turnCounter = 1;
+    _log.clear();
+    _undoStack.clear();
+    notifyListeners();
+  }
+
+  // ── Log helpers ──────────────────────────────────────────────────────────
+  void _addLog(String line) {
+    _log.add(line);
+    if (_log.length > 100) _log.removeAt(0);
+  }
+
+  List<String> get log => List.unmodifiable(_log);
+  int get turnCounter => _turnCounter;
+  bool get canUndo => _undoStack.isNotEmpty;
+
+  // ── Snapshot helpers ─────────────────────────────────────────────────────
+  _GameSnapshot _takeSnapshot() {
+    final boardCopy = <Position, Piece>{};
+    for (final entry in _board.entries) {
+      final p = entry.value;
+      boardCopy[entry.key] = Piece(
+        id: p.id,
+        type: p.type,
+        side: p.side,
+        currentHp: p.currentHp,
+        currentArmor: p.currentArmor,
+        poisonTurns: p.poisonTurns,
+        isDormant: p.isDormant,
+      );
+    }
+    return _GameSnapshot(
+      board: boardCopy,
+      currentTurn: _currentTurn,
+      winner: _winner,
+      blueSummonUsed: _blueSummonUsed,
+      redSummonUsed: _redSummonUsed,
+      turnCounter: _turnCounter,
+      log: List.of(_log),
+    );
+  }
+
+  void _saveSnapshot() => _undoStack.add(_takeSnapshot());
+
+  void undo() {
+    if (_undoStack.isEmpty) return;
+    final snap = _undoStack.removeLast();
+    _board = snap.board;
+    _currentTurn = snap.currentTurn;
+    _winner = snap.winner;
+    _blueSummonUsed = snap.blueSummonUsed;
+    _redSummonUsed = snap.redSummonUsed;
+    _turnCounter = snap.turnCounter;
+    _log
+      ..clear()
+      ..addAll(snap.log);
+    _selectedPosition = null;
+    _legalMoves = const [];
+    _attackTargets = const [];
+    _healTargets = const [];
+    _isSummoning = false;
     _summonDestinations = const [];
     notifyListeners();
   }
@@ -434,6 +521,9 @@ class GameState extends ChangeNotifier {
     _attackTargets = const [];
     _healTargets = const [];
     _summonDestinations = const [];
+    _turnCounter = 1;
+    _log.clear();
+    _undoStack.clear();
     notifyListeners();
   }
 
@@ -563,6 +653,9 @@ class GameState extends ChangeNotifier {
       _phase = GamePhase.play;
       _currentTurn = PlayerSide.blue;
       _selectedTrayPiece = null;
+      _turnCounter = 1;
+      _log.clear();
+      _undoStack.clear();
       notifyListeners();
     }
   }
@@ -692,6 +785,9 @@ class GameState extends ChangeNotifier {
     if (piece == null || piece.side != _currentTurn) return;
     if (!_legalMoves.contains(to)) return;
 
+    _saveSnapshot();
+    _addLog('${piece.side.displayName} ${piece.definition.name} ${from.notation} -> ${to.notation}');
+
     _board[to] = piece;
     _board.remove(from);
 
@@ -705,22 +801,50 @@ class GameState extends ChangeNotifier {
     if (attacker == null || defender == null || attacker.side != _currentTurn) return;
     if (!_attackTargets.contains(defenderPos)) return;
 
+    _saveSnapshot();
+
     if (attacker.type == PieceType.healer) {
       // Healer poison action: -1 hp immediately (ignoring armor) and set poison turns = 2
+      _addLog('${attacker.side.displayName} ${attacker.definition.name} ${attackerPos.notation} poisons ${defender.side.displayName} ${defender.definition.name} ${defenderPos.notation} (-1 HP)');
       defender.currentHp -= 1;
       defender.poisonTurns = 2;
       if (defender.currentHp <= 0) {
         _board.remove(defenderPos);
+        _addLog('${defender.side.displayName} ${defender.definition.name} ${defenderPos.notation} dies');
         if (defender.type == PieceType.crown) {
           _winner = attacker.side;
+          _addLog('${attacker.side.displayName} wins: ${defender.side.displayName} Crown has fallen');
         }
       }
     } else {
+      final isBurn = attacker.type == PieceType.mage;
+      final verb = isBurn ? 'burns' : 'hits';
+      final damage = attacker.definition.atk;
+      // Determine what gets hit for log
+      String damageDesc;
+      if (isBurn) {
+        damageDesc = '($damage to HP)';
+      } else {
+        if (defender.currentArmor >= damage) {
+          damageDesc = '($damage to Armor)';
+        } else {
+          final armorAbsorbed = defender.currentArmor;
+          final hpDamage = damage - armorAbsorbed;
+          if (armorAbsorbed > 0) {
+            damageDesc = '($hpDamage to HP)';
+          } else {
+            damageDesc = '($damage to HP)';
+          }
+        }
+      }
+      _addLog('${attacker.side.displayName} ${attacker.definition.name} ${attackerPos.notation} $verb ${defender.side.displayName} ${defender.definition.name} ${defenderPos.notation} $damageDesc');
       applyAttackDamage(attacker: attacker, defender: defender);
       if (defender.currentHp <= 0) {
         _board.remove(defenderPos);
+        _addLog('${defender.side.displayName} ${defender.definition.name} ${defenderPos.notation} dies');
         if (defender.type == PieceType.crown) {
           _winner = attacker.side;
+          _addLog('${attacker.side.displayName} wins: ${defender.side.displayName} Crown has fallen');
         }
       }
     }
@@ -735,9 +859,15 @@ class GameState extends ChangeNotifier {
     if (healer == null || target == null || healer.side != _currentTurn) return;
     if (healer.type != PieceType.healer || !_healTargets.contains(targetPos)) return;
 
+    _saveSnapshot();
+    final wasPoisoned = target.isPoisoned;
+
     // +1 hp (never above starting hp) and remove poison
     target.currentHp = min(target.definition.hp, target.currentHp + 1);
     target.poisonTurns = 0;
+
+    final curedStr = wasPoisoned ? ', cured' : '';
+    _addLog('${healer.side.displayName} ${healer.definition.name} ${healerPos.notation} heals ${target.side.displayName} ${target.definition.name} ${targetPos.notation} (+1 HP$curedStr)');
 
     _endTurn();
   }
@@ -749,6 +879,9 @@ class GameState extends ChangeNotifier {
 
     final phantomPos = findPiecePosition(side: _currentTurn, type: PieceType.phantom, board: _board);
     if (phantomPos == null) return;
+
+    _saveSnapshot();
+    _addLog('${_currentTurn.displayName} Crown summons Phantom to ${destination.notation}');
 
     final phantom = _board.remove(phantomPos)!;
     phantom.isDormant = true;
@@ -780,15 +913,20 @@ class GameState extends ChangeNotifier {
         piece.poisonTurns -= 1;
         if (piece.poisonTurns == 0) {
           piece.currentHp -= 1;
+          _addLog('${piece.side.displayName} ${piece.definition.name} ${pos.notation} takes poison (-1 HP)');
           if (piece.currentHp <= 0) {
             _board.remove(pos);
+            _addLog('${piece.side.displayName} ${piece.definition.name} ${pos.notation} dies');
             if (piece.type == PieceType.crown) {
               _winner = (_currentTurn == PlayerSide.blue) ? PlayerSide.red : PlayerSide.blue;
+              _addLog('${_winner!.displayName} wins: ${_currentTurn.displayName} Crown has fallen');
             }
           }
         }
       }
     }
+
+    _turnCounter += 1;
 
     if (_winner == null) {
       _currentTurn = (_currentTurn == PlayerSide.blue) ? PlayerSide.red : PlayerSide.blue;

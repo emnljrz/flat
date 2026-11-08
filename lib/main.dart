@@ -34,16 +34,35 @@ class BoardScreen extends StatefulWidget {
 
 class _BoardScreenState extends State<BoardScreen> {
   late final GameState _gameState;
+  bool _logExpanded = false;
+  final ScrollController _logScrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _gameState = GameState();
+    _gameState.addListener(_onGameStateChanged);
+  }
+
+  void _onGameStateChanged() {
+    if (_logExpanded && _logScrollController.hasClients) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_logScrollController.hasClients) {
+          _logScrollController.animateTo(
+            _logScrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
+    _gameState.removeListener(_onGameStateChanged);
     _gameState.dispose();
+    _logScrollController.dispose();
     super.dispose();
   }
 
@@ -76,6 +95,8 @@ class _BoardScreenState extends State<BoardScreen> {
                   _buildDeploymentTray()
                 else
                   _buildInfoPanel(),
+                if (!isDeployment)
+                  _buildLogPanel(),
                 Expanded(
                   child: Center(
                     child: Padding(
@@ -302,6 +323,7 @@ class _BoardScreenState extends State<BoardScreen> {
     final turnColor = turn == PlayerSide.blue ? pieceBlueColor : pieceRedColor;
     final isGameOver = _gameState.isGameOver;
     final winner = _gameState.winner;
+    final turnCounter = _gameState.turnCounter;
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -343,6 +365,11 @@ class _BoardScreenState extends State<BoardScreen> {
                     letterSpacing: 0.5,
                   ),
                 ),
+                const SizedBox(width: 10),
+                Text(
+                  'Turn $turnCounter',
+                  style: const TextStyle(color: Colors.white38, fontSize: 12),
+                ),
               ],
             ),
           Row(
@@ -369,6 +396,15 @@ class _BoardScreenState extends State<BoardScreen> {
                   ),
                   onPressed: _gameState.toggleSummon,
                 ),
+              IconButton(
+                tooltip: 'Undo',
+                icon: Icon(
+                  Icons.undo,
+                  size: 20,
+                  color: _gameState.canUndo ? Colors.white70 : Colors.white24,
+                ),
+                onPressed: _gameState.canUndo ? _gameState.undo : null,
+              ),
               const SizedBox(width: 4),
               if (isGameOver)
                 ElevatedButton.icon(
@@ -496,6 +532,58 @@ class _BoardScreenState extends State<BoardScreen> {
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _buildLogPanel() {
+    final log = _gameState.log;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      decoration: BoxDecoration(
+        color: cellNormalColor,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _logExpanded = !_logExpanded),
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              child: Row(
+                children: [
+                  const Text('Combat Log', style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600)),
+                  const SizedBox(width: 6),
+                  Text('(${log.length})', style: const TextStyle(color: Colors.white38, fontSize: 10)),
+                  const Spacer(),
+                  Icon(
+                    _logExpanded ? Icons.expand_less : Icons.expand_more,
+                    size: 16,
+                    color: Colors.white38,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_logExpanded)
+            SizedBox(
+              height: 110,
+              child: log.isEmpty
+                  ? const Center(child: Text('No events yet.', style: TextStyle(color: Colors.white24, fontSize: 11)))
+                  : ListView.builder(
+                      controller: _logScrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      itemCount: log.length,
+                      itemBuilder: (context, index) => Text(
+                        log[index],
+                        style: const TextStyle(color: Colors.white60, fontSize: 11, height: 1.4),
+                      ),
+                    ),
+            ),
+        ],
+      ),
     );
   }
 

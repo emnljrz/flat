@@ -5,6 +5,10 @@ enum PlayerSide {
   red,
 }
 
+extension PlayerSideDisplay on PlayerSide {
+  String get displayName => this == PlayerSide.blue ? 'Blue' : 'Red';
+}
+
 enum GamePhase {
   blueDeployment,
   passToRed,

@@ -853,4 +853,145 @@ void main() {
       expect(gameState.currentTurn, equals(PlayerSide.blue));
     });
   });
+
+  group('Combat Log and Undo', () {
+    test('undo is unavailable at the start of play', () {
+      final gameState = GameState(initialPhase: GamePhase.play);
+      expect(gameState.canUndo, isFalse);
+    });
+
+    test('undo after move restores board, turn, and log', () {
+      final gameState = GameState(initialPhase: GamePhase.play);
+      gameState.board.clear();
+
+      final from = Position.fromNotation('b2');
+      final to = Position.fromNotation('b3');
+      gameState.board[from] = Piece(id: 'kn', type: PieceType.knight, side: PlayerSide.blue);
+
+      gameState.handleCellTap(from);
+      gameState.handleCellTap(to);
+
+      expect(gameState.board.containsKey(to), isTrue);
+      expect(gameState.board.containsKey(from), isFalse);
+      expect(gameState.currentTurn, equals(PlayerSide.red));
+      expect(gameState.log.length, equals(1));
+      expect(gameState.canUndo, isTrue);
+
+      gameState.undo();
+
+      expect(gameState.board.containsKey(from), isTrue);
+      expect(gameState.board.containsKey(to), isFalse);
+      expect(gameState.currentTurn, equals(PlayerSide.blue));
+      expect(gameState.log, isEmpty);
+      expect(gameState.canUndo, isFalse);
+    });
+
+    test('undo after attack with kill restores hp/armor and revives piece', () {
+      final gameState = GameState(initialPhase: GamePhase.play);
+      gameState.board.clear();
+
+      final attackerPos = Position.fromNotation('e5');
+      final defenderPos = Position.fromNotation('e6');
+      gameState.board[attackerPos] = Piece(id: 'phn', type: PieceType.phantom, side: PlayerSide.blue); // atk 3
+      gameState.board[defenderPos] = Piece(id: 'crn', type: PieceType.crown, side: PlayerSide.red); // hp 1, armor 1
+
+      gameState.handleCellTap(attackerPos);
+      gameState.handleCellTap(defenderPos);
+
+      expect(gameState.board.containsKey(defenderPos), isFalse);
+      expect(gameState.isGameOver, isTrue);
+
+      gameState.undo();
+
+      expect(gameState.board.containsKey(defenderPos), isTrue);
+      expect(gameState.board[defenderPos]!.currentHp, equals(1));
+      expect(gameState.board[defenderPos]!.currentArmor, equals(1));
+      expect(gameState.isGameOver, isFalse);
+      expect(gameState.winner, isNull);
+    });
+
+    test('undo after poison tick restores hp and poisonTurns', () {
+      final gameState = GameState(initialPhase: GamePhase.play);
+      gameState.board.clear();
+
+      final healerPos = Position.fromNotation('d1');
+      final enemyPos = Position.fromNotation('d3');
+      final redDummyPos = Position.fromNotation('k13');
+      final blueDummyPos = Position.fromNotation('a1');
+
+      gameState.board[healerPos] = Piece(id: 'hlr', type: PieceType.healer, side: PlayerSide.blue);
+      gameState.board[enemyPos] = Piece(id: 'enemy', type: PieceType.tank, side: PlayerSide.red); // hp 3, armor 3
+      gameState.board[redDummyPos] = Piece(id: 'red_d', type: PieceType.knight, side: PlayerSide.red);
+      gameState.board[blueDummyPos] = Piece(id: 'blue_d', type: PieceType.knight, side: PlayerSide.blue);
+
+      // Blue poisons Red tank (turn counter 1 -> 2)
+      gameState.handleCellTap(healerPos);
+      gameState.handleCellTap(enemyPos);
+      expect(gameState.board[enemyPos]!.currentHp, equals(2));
+
+      // Red Turn 1: poison ticks down (turns: 2->1, no damage yet)
+      gameState.handleCellTap(redDummyPos);
+      gameState.handleCellTap(Position.fromNotation('k12'));
+
+      // Blue Turn: dummy move
+      gameState.handleCellTap(blueDummyPos);
+      gameState.handleCellTap(Position.fromNotation('a2'));
+
+      // Red Turn 2: poison fires (-1 HP) and clears
+      gameState.handleCellTap(Position.fromNotation('k12'));
+      gameState.handleCellTap(Position.fromNotation('k11'));
+      expect(gameState.board[enemyPos]!.currentHp, equals(1));
+      expect(gameState.board[enemyPos]!.poisonTurns, equals(0));
+
+      // Undo that last Red turn action (which caused the tick to fire)
+      gameState.undo();
+      expect(gameState.board[enemyPos]!.currentHp, equals(2));
+      expect(gameState.board[enemyPos]!.poisonTurns, equals(1));
+    });
+
+    test('undo after summon restores phantom position and summonUsed flag', () {
+      final gameState = GameState(initialPhase: GamePhase.play);
+      gameState.board.clear();
+
+      final crownPos = Position.fromNotation('d5');
+      final phantomPos = Position.fromNotation('a1');
+      final summonDest = Position.fromNotation('d4');
+
+      gameState.board[crownPos] = Piece(id: 'crn', type: PieceType.crown, side: PlayerSide.blue);
+      gameState.board[phantomPos] = Piece(id: 'phn', type: PieceType.phantom, side: PlayerSide.blue);
+
+      expect(gameState.canCurrentPlayerSummon, isTrue);
+
+      gameState.toggleSummon();
+      gameState.handleCellTap(summonDest);
+
+      expect(gameState.board.containsKey(summonDest), isTrue);
+      expect(gameState.board.containsKey(phantomPos), isFalse);
+      expect(gameState.board[summonDest]!.isDormant, isTrue);
+      expect(gameState.blueSummonUsed, isTrue);
+      expect(gameState.currentTurn, equals(PlayerSide.red));
+
+      gameState.undo();
+
+      expect(gameState.board.containsKey(phantomPos), isTrue);
+      expect(gameState.board.containsKey(summonDest), isFalse);
+      expect(gameState.blueSummonUsed, isFalse);
+      expect(gameState.currentTurn, equals(PlayerSide.blue));
+    });
+
+    test('log contains Mage burn line with "burns" verb', () {
+      final gameState = GameState(initialPhase: GamePhase.play);
+      gameState.board.clear();
+
+      final magePos = Position.fromNotation('e5');
+      final enemyPos = Position.fromNotation('e6');
+      gameState.board[magePos] = Piece(id: 'mge', type: PieceType.mage, side: PlayerSide.blue); // atk 2, burn
+      gameState.board[enemyPos] = Piece(id: 'kn', type: PieceType.knight, side: PlayerSide.red); // hp 2, armor 3
+
+      gameState.handleCellTap(magePos);
+      gameState.handleCellTap(enemyPos);
+
+      expect(gameState.log.any((l) => l.contains('burns') && l.contains('to HP')), isTrue);
+    });
+  });
 }
