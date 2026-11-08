@@ -241,80 +241,93 @@ void applyAttackDamage({
   }
 }
 
-Map<Position, Piece> createInitialBoard() {
+Map<Position, Piece> createInitialDeploymentBoard() {
   final board = <Position, Piece>{};
 
-  // Blue Row 2 (cols a-k)
-  final blueRow2 = [
-    PieceType.knight, // a2
-    PieceType.knight, // b2
-    PieceType.tank,   // c2
-    PieceType.knight, // d2
-    PieceType.knight, // e2
-    PieceType.tank,   // f2
-    PieceType.knight, // g2
-    PieceType.knight, // h2
-    PieceType.tank,   // i2
-    PieceType.knight, // j2
-    PieceType.knight, // k2
-  ];
-
-  for (int col = 0; col < blueRow2.length; col++) {
-    final type = blueRow2[col];
-    final pos = Position(col, 2);
-    board[pos] = Piece(
-      id: 'blue_${type.name}_${pos.notation}',
-      type: type,
-      side: PlayerSide.blue,
-    );
-  }
-
-  // Blue Row 1 (cols a-k)
-  final blueRow1 = [
-    PieceType.phantom, // a1 (fixed)
-    PieceType.crown,   // b1
-    PieceType.healer,  // c1
-    PieceType.healer,  // d1
-    PieceType.archer,  // e1
-    PieceType.archer,  // f1
-    PieceType.mage,    // g1
-    PieceType.mage,    // h1
-    PieceType.tank,    // i1
-    PieceType.archer,  // j1
-    PieceType.scepter, // k1 (fixed)
-  ];
-
-  for (int col = 0; col < blueRow1.length; col++) {
-    final type = blueRow1[col];
-    final pos = Position(col, 1);
-    board[pos] = Piece(
-      id: 'blue_${type.name}_${pos.notation}',
-      type: type,
-      side: PlayerSide.blue,
-    );
-  }
-
-  // Red is Blue rotated 180 degrees (col -> 10 - col, row -> 14 - row)
-  final blueEntries = board.entries.toList();
-  for (final entry in blueEntries) {
-    final bluePos = entry.key;
-    final bluePiece = entry.value;
-
-    final redCol = (boardCols - 1) - bluePos.col;
-    final redRow = (boardRows + 1) - bluePos.row;
-    final redPos = Position(redCol, redRow);
-
-    board[redPos] = Piece(
-      id: 'red_${bluePiece.type.name}_${redPos.notation}',
-      type: bluePiece.type,
-      side: PlayerSide.red,
-    );
-  }
+  // Fixed starting squares
+  board[Position.fromNotation('a1')] = Piece(
+    id: 'blue_phantom_a1',
+    type: PieceType.phantom,
+    side: PlayerSide.blue,
+  );
+  board[Position.fromNotation('k1')] = Piece(
+    id: 'blue_scepter_k1',
+    type: PieceType.scepter,
+    side: PlayerSide.blue,
+  );
+  board[Position.fromNotation('k13')] = Piece(
+    id: 'red_phantom_k13',
+    type: PieceType.phantom,
+    side: PlayerSide.red,
+  );
+  board[Position.fromNotation('a13')] = Piece(
+    id: 'red_scepter_a13',
+    type: PieceType.scepter,
+    side: PlayerSide.red,
+  );
 
   return board;
 }
 
+Map<Position, PieceType> sampleDeploymentLayout(PlayerSide side) {
+  if (side == PlayerSide.blue) {
+    return {
+      // Row 1 (b1-j1): Crown, Healer, Healer, Archer, Archer, Mage, Mage, Tank, Archer
+      Position.fromNotation('b1'): PieceType.crown,
+      Position.fromNotation('c1'): PieceType.healer,
+      Position.fromNotation('d1'): PieceType.healer,
+      Position.fromNotation('e1'): PieceType.archer,
+      Position.fromNotation('f1'): PieceType.archer,
+      Position.fromNotation('g1'): PieceType.mage,
+      Position.fromNotation('h1'): PieceType.mage,
+      Position.fromNotation('i1'): PieceType.tank,
+      Position.fromNotation('j1'): PieceType.archer,
+      // Row 2 (a2-k2): Knight, Knight, Tank, Knight, Knight, Tank, Knight, Knight, Tank, Knight, Knight
+      Position.fromNotation('a2'): PieceType.knight,
+      Position.fromNotation('b2'): PieceType.knight,
+      Position.fromNotation('c2'): PieceType.tank,
+      Position.fromNotation('d2'): PieceType.knight,
+      Position.fromNotation('e2'): PieceType.knight,
+      Position.fromNotation('f2'): PieceType.tank,
+      Position.fromNotation('g2'): PieceType.knight,
+      Position.fromNotation('h2'): PieceType.knight,
+      Position.fromNotation('i2'): PieceType.tank,
+      Position.fromNotation('j2'): PieceType.knight,
+      Position.fromNotation('k2'): PieceType.knight,
+    };
+  } else {
+    final blue = sampleDeploymentLayout(PlayerSide.blue);
+    final red = <Position, PieceType>{};
+    for (final entry in blue.entries) {
+      final bPos = entry.key;
+      final rPos = Position((boardCols - 1) - bPos.col, (boardRows + 1) - bPos.row);
+      red[rPos] = entry.value;
+    }
+    return red;
+  }
+}
+
+Map<Position, Piece> createInitialBoard() {
+  final board = createInitialDeploymentBoard();
+  for (final entry in sampleDeploymentLayout(PlayerSide.blue).entries) {
+    board[entry.key] = Piece(
+      id: 'blue_${entry.value.name}_${entry.key.notation}',
+      type: entry.value,
+      side: PlayerSide.blue,
+    );
+  }
+  for (final entry in sampleDeploymentLayout(PlayerSide.red).entries) {
+    board[entry.key] = Piece(
+      id: 'red_${entry.value.name}_${entry.key.notation}',
+      type: entry.value,
+      side: PlayerSide.red,
+    );
+  }
+  return board;
+}
+
 class GameState extends ChangeNotifier {
+  GamePhase _phase = GamePhase.blueDeployment;
   Map<Position, Piece> _board = {};
   PlayerSide _currentTurn = PlayerSide.blue;
   PlayerSide? _winner;
@@ -323,14 +336,51 @@ class GameState extends ChangeNotifier {
   List<Position> _attackTargets = const [];
   List<Position> _healTargets = const [];
 
+  Map<PieceType, int> _blueRemainingPieces = initialDeploymentCounts();
+  Map<PieceType, int> _redRemainingPieces = initialDeploymentCounts();
+  PieceType? _selectedTrayPiece;
+
   bool _blueSummonUsed = false;
   bool _redSummonUsed = false;
   bool _isSummoning = false;
   List<Position> _summonDestinations = const [];
 
-  GameState() {
-    reset();
+  GameState({GamePhase initialPhase = GamePhase.blueDeployment}) {
+    if (initialPhase == GamePhase.play) {
+      startPlay();
+    } else {
+      reset();
+    }
   }
+
+  void startPlay() {
+    _phase = GamePhase.play;
+    _board = createInitialBoard();
+    _blueRemainingPieces = {for (final k in initialDeploymentCounts().keys) k: 0};
+    _redRemainingPieces = {for (final k in initialDeploymentCounts().keys) k: 0};
+    _selectedTrayPiece = null;
+    _currentTurn = PlayerSide.blue;
+    _winner = null;
+    _blueSummonUsed = false;
+    _redSummonUsed = false;
+    _isSummoning = false;
+    _selectedPosition = null;
+    _legalMoves = const [];
+    _attackTargets = const [];
+    _healTargets = const [];
+    _summonDestinations = const [];
+    notifyListeners();
+  }
+
+  GamePhase get phase => _phase;
+  bool get isDeployment => _phase == GamePhase.blueDeployment || _phase == GamePhase.redDeployment;
+  PlayerSide get deploymentSide => (_phase == GamePhase.blueDeployment) ? PlayerSide.blue : PlayerSide.red;
+
+  Map<PieceType, int> get blueRemainingPieces => Map.unmodifiable(_blueRemainingPieces);
+  Map<PieceType, int> get redRemainingPieces => Map.unmodifiable(_redRemainingPieces);
+  Map<PieceType, int> get currentRemainingPieces =>
+      _phase == GamePhase.blueDeployment ? _blueRemainingPieces : _redRemainingPieces;
+  PieceType? get selectedTrayPiece => _selectedTrayPiece;
 
   Map<Position, Piece> get board => _board;
   PlayerSide get currentTurn => _currentTurn;
@@ -348,6 +398,7 @@ class GameState extends ChangeNotifier {
   List<Position> get summonDestinations => _summonDestinations;
 
   bool get canCurrentPlayerSummon =>
+      _phase == GamePhase.play &&
       !isGameOver &&
       canPlayerSummon(
         side: _currentTurn,
@@ -355,8 +406,24 @@ class GameState extends ChangeNotifier {
         board: _board,
       );
 
+  bool isPieceVisible(Position pos, Piece piece) {
+    if (_phase == GamePhase.play) return true;
+    if (_phase == GamePhase.blueDeployment) {
+      return piece.side == PlayerSide.blue || isFixedStartingPosition(pos);
+    }
+    if (_phase == GamePhase.redDeployment) {
+      return piece.side == PlayerSide.red || isFixedStartingPosition(pos);
+    }
+    return false;
+  }
+
   void reset() {
-    _board = createInitialBoard();
+    _phase = GamePhase.blueDeployment;
+    _board = createInitialDeploymentBoard();
+    _blueRemainingPieces = initialDeploymentCounts();
+    _redRemainingPieces = initialDeploymentCounts();
+    _selectedTrayPiece = null;
+
     _currentTurn = PlayerSide.blue;
     _winner = null;
     _blueSummonUsed = false;
@@ -370,8 +437,139 @@ class GameState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Deployment Methods
+  void selectTrayPiece(PieceType type) {
+    if (!isDeployment) return;
+    final counts = currentRemainingPieces;
+    if ((counts[type] ?? 0) <= 0) return;
+
+    if (_selectedTrayPiece == type) {
+      _selectedTrayPiece = null;
+    } else {
+      _selectedTrayPiece = type;
+    }
+    notifyListeners();
+  }
+
+  bool placePiece(Position pos) {
+    if (!isDeployment) return false;
+    if (_selectedTrayPiece == null) return false;
+
+    final side = deploymentSide;
+    final counts = (side == PlayerSide.blue) ? _blueRemainingPieces : _redRemainingPieces;
+    if ((counts[_selectedTrayPiece!] ?? 0) <= 0) return false;
+
+    if (!isInDeploymentZone(side, pos)) return false;
+    if (_board.containsKey(pos)) return false;
+
+    _board[pos] = Piece(
+      id: '${side.name}_${_selectedTrayPiece!.name}_${pos.notation}',
+      type: _selectedTrayPiece!,
+      side: side,
+    );
+    counts[_selectedTrayPiece!] = counts[_selectedTrayPiece!]! - 1;
+
+    if (counts[_selectedTrayPiece!] == 0) {
+      _selectedTrayPiece = null;
+    }
+
+    notifyListeners();
+    return true;
+  }
+
+  bool removePiece(Position pos) {
+    if (!isDeployment) return false;
+    final side = deploymentSide;
+
+    final piece = _board[pos];
+    if (piece == null || piece.side != side) return false;
+    if (isFixedStartingPosition(pos)) return false;
+
+    _board.remove(pos);
+    final counts = (side == PlayerSide.blue) ? _blueRemainingPieces : _redRemainingPieces;
+    counts[piece.type] = (counts[piece.type] ?? 0) + 1;
+
+    notifyListeners();
+    return true;
+  }
+
+  void autoFill([PlayerSide? targetSide]) {
+    final side = targetSide ?? deploymentSide;
+
+    // Remove all non-fixed pieces of side
+    _board.removeWhere((pos, piece) => piece.side == side && !isFixedStartingPosition(pos));
+
+    // Place sample layout
+    final layout = sampleDeploymentLayout(side);
+    for (final entry in layout.entries) {
+      _board[entry.key] = Piece(
+        id: '${side.name}_${entry.value.name}_${entry.key.notation}',
+        type: entry.value,
+        side: side,
+      );
+    }
+
+    // Set counts to 0
+    final counts = (side == PlayerSide.blue) ? _blueRemainingPieces : _redRemainingPieces;
+    for (final key in counts.keys) {
+      counts[key] = 0;
+    }
+
+    _selectedTrayPiece = null;
+    notifyListeners();
+  }
+
+  void clearDeployment([PlayerSide? targetSide]) {
+    final side = targetSide ?? deploymentSide;
+
+    _board.removeWhere((pos, piece) => piece.side == side && !isFixedStartingPosition(pos));
+
+    final counts = (side == PlayerSide.blue) ? _blueRemainingPieces : _redRemainingPieces;
+    final init = initialDeploymentCounts();
+    for (final entry in init.entries) {
+      counts[entry.key] = entry.value;
+    }
+
+    _selectedTrayPiece = null;
+    notifyListeners();
+  }
+
+  bool canCompleteDeployment([PlayerSide? targetSide]) {
+    final side = targetSide ?? deploymentSide;
+    final counts = (side == PlayerSide.blue) ? _blueRemainingPieces : _redRemainingPieces;
+    return counts.values.every((c) => c == 0);
+  }
+
+  void completeDeployment() {
+    if (_phase == GamePhase.blueDeployment) {
+      if (!canCompleteDeployment(PlayerSide.blue)) return;
+      _phase = GamePhase.passToRed;
+      _selectedTrayPiece = null;
+      notifyListeners();
+    } else if (_phase == GamePhase.redDeployment) {
+      if (!canCompleteDeployment(PlayerSide.red)) return;
+      _phase = GamePhase.passToBlue;
+      _selectedTrayPiece = null;
+      notifyListeners();
+    }
+  }
+
+  void continueFromHandover() {
+    if (_phase == GamePhase.passToRed) {
+      _phase = GamePhase.redDeployment;
+      _selectedTrayPiece = null;
+      notifyListeners();
+    } else if (_phase == GamePhase.passToBlue) {
+      _phase = GamePhase.play;
+      _currentTurn = PlayerSide.blue;
+      _selectedTrayPiece = null;
+      notifyListeners();
+    }
+  }
+
+  // Play Actions
   void toggleSummon() {
-    if (isGameOver) return;
+    if (_phase != GamePhase.play || isGameOver) return;
     if (_isSummoning) {
       _isSummoning = false;
       _summonDestinations = const [];
@@ -391,7 +589,24 @@ class GameState extends ChangeNotifier {
   }
 
   void handleCellTap(Position pos) {
-    if (isGameOver) return;
+    if (isDeployment) {
+      final currentSide = deploymentSide;
+
+      if (_board.containsKey(pos)) {
+        final piece = _board[pos]!;
+        if (piece.side == currentSide && !isFixedStartingPosition(pos)) {
+          removePiece(pos);
+        }
+        return;
+      }
+
+      if (_selectedTrayPiece != null && isInDeploymentZone(currentSide, pos)) {
+        placePiece(pos);
+      }
+      return;
+    }
+
+    if (_phase != GamePhase.play || isGameOver) return;
 
     if (_isSummoning) {
       if (_summonDestinations.contains(pos)) {
@@ -434,6 +649,7 @@ class GameState extends ChangeNotifier {
   }
 
   void selectPiece(Position pos) {
+    if (_phase != GamePhase.play) return;
     final piece = _board[pos];
     if (piece == null) return;
 
@@ -471,7 +687,7 @@ class GameState extends ChangeNotifier {
   }
 
   void movePiece(Position from, Position to) {
-    if (isGameOver) return;
+    if (_phase != GamePhase.play || isGameOver) return;
     final piece = _board[from];
     if (piece == null || piece.side != _currentTurn) return;
     if (!_legalMoves.contains(to)) return;
@@ -483,7 +699,7 @@ class GameState extends ChangeNotifier {
   }
 
   void attackPiece(Position attackerPos, Position defenderPos) {
-    if (isGameOver) return;
+    if (_phase != GamePhase.play || isGameOver) return;
     final attacker = _board[attackerPos];
     final defender = _board[defenderPos];
     if (attacker == null || defender == null || attacker.side != _currentTurn) return;
@@ -513,7 +729,7 @@ class GameState extends ChangeNotifier {
   }
 
   void healPiece(Position healerPos, Position targetPos) {
-    if (isGameOver) return;
+    if (_phase != GamePhase.play || isGameOver) return;
     final healer = _board[healerPos];
     final target = _board[targetPos];
     if (healer == null || target == null || healer.side != _currentTurn) return;
@@ -527,7 +743,7 @@ class GameState extends ChangeNotifier {
   }
 
   void executeSummon(Position destination) {
-    if (isGameOver) return;
+    if (_phase != GamePhase.play || isGameOver) return;
     if (!canCurrentPlayerSummon) return;
     if (!_summonDestinations.contains(destination)) return;
 

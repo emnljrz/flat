@@ -5,6 +5,14 @@ enum PlayerSide {
   red,
 }
 
+enum GamePhase {
+  blueDeployment,
+  passToRed,
+  redDeployment,
+  passToBlue,
+  play,
+}
+
 enum PieceType {
   tank,
   healer,
@@ -216,6 +224,30 @@ const Set<int> bridgeCols = {1, 2, 4, 5, 6, 8, 9}; // b, c, e, f, g, i, j
 
 bool isRiverPosition(Position pos) => pos.row == riverRow && riverCols.contains(pos.col);
 bool isBridgePosition(Position pos) => pos.row == riverRow && bridgeCols.contains(pos.col);
+
+bool isFixedStartingPosition(Position pos) {
+  return (pos.col == 0 && pos.row == 1) ||
+      (pos.col == 10 && pos.row == 1) ||
+      (pos.col == 10 && pos.row == 13) ||
+      (pos.col == 0 && pos.row == 13);
+}
+
+bool isInDeploymentZone(PlayerSide side, Position pos) {
+  if (side == PlayerSide.blue) {
+    return pos.row >= 1 && pos.row <= 3 && pos.col >= 0 && pos.col < boardCols;
+  } else {
+    return pos.row >= 11 && pos.row <= 13 && pos.col >= 0 && pos.col < boardCols;
+  }
+}
+
+Map<PieceType, int> initialDeploymentCounts() => {
+  PieceType.tank: 4,
+  PieceType.healer: 2,
+  PieceType.archer: 3,
+  PieceType.mage: 2,
+  PieceType.knight: 8,
+  PieceType.crown: 1,
+};
 
 // Theme Colors
 const Color appBackgroundColor = Color(0xFF121212);

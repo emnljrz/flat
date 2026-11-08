@@ -166,7 +166,7 @@ void main() {
 
   group('Turn Alternation and Game Flow', () {
     test('turns alternate between Blue and Red on move', () {
-      final gameState = GameState();
+      final gameState = GameState(initialPhase: GamePhase.play);
 
       expect(gameState.currentTurn, equals(PlayerSide.blue));
 
@@ -393,7 +393,7 @@ void main() {
     });
 
     test('Removal at HP <= 0 and Crown assassination triggers game over', () {
-      final gameState = GameState();
+      final gameState = GameState(initialPhase: GamePhase.play);
       // Replace board with attacker and Crown
       final phantomPos = Position.fromNotation('e5');
       final crownPos = Position.fromNotation('e6');
@@ -432,7 +432,7 @@ void main() {
 
   group('Turn Actions and Target Selection', () {
     test('when a piece has a target, moving a different piece is allowed', () {
-      final gameState = GameState();
+      final gameState = GameState(initialPhase: GamePhase.play);
       gameState.board.clear();
 
       // Pass turn to Red by having Blue make a move
@@ -472,7 +472,7 @@ void main() {
     });
 
     test('selecting a piece with no targets yields an empty target list', () {
-      final gameState = GameState();
+      final gameState = GameState(initialPhase: GamePhase.play);
       gameState.board.clear();
 
       final blueKnightPos = Position.fromNotation('b2');
@@ -492,7 +492,7 @@ void main() {
 
   group('Healer and Poison Rules', () {
     test('heal cap at starting hp and heal cures poison', () {
-      final gameState = GameState();
+      final gameState = GameState(initialPhase: GamePhase.play);
       gameState.board.clear();
 
       final healerPos = Position.fromNotation('c1');
@@ -520,7 +520,7 @@ void main() {
       expect(allyTank.poisonTurns, equals(0));
 
       // After healing, ally is at full hp and not poisoned -> cannot be healed again
-      gameState.reset();
+      gameState.startPlay();
       gameState.board.clear();
       gameState.board[healerPos] = Piece(id: 'hlr', type: PieceType.healer, side: PlayerSide.blue);
       gameState.board[allyTankPos] = Piece(id: 'full_tank', type: PieceType.tank, side: PlayerSide.blue); // hp 3
@@ -558,7 +558,7 @@ void main() {
     });
 
     test('poison -1 hp ignores armor and cannot target an already poisoned piece', () {
-      final gameState = GameState();
+      final gameState = GameState(initialPhase: GamePhase.play);
       gameState.board.clear();
 
       final healerPos = Position.fromNotation('d1');
@@ -588,7 +588,7 @@ void main() {
     });
 
     test('tick timeline: hit on turn T, extra -1 at the end of victim owner 2nd turn', () {
-      final gameState = GameState();
+      final gameState = GameState(initialPhase: GamePhase.play);
       gameState.board.clear();
 
       final healerPos = Position.fromNotation('d1');
@@ -634,7 +634,7 @@ void main() {
     });
 
     test('poison can kill immediately and triggers game over if Crown dies', () {
-      final gameState = GameState();
+      final gameState = GameState(initialPhase: GamePhase.play);
       gameState.board.clear();
 
       final healerPos = Position.fromNotation('d1');
@@ -656,7 +656,7 @@ void main() {
 
   group('Summon Rules', () {
     test('summon works once, places only on empty non-river squares adjacent to Crown, and makes Phantom dormant', () {
-      final gameState = GameState();
+      final gameState = GameState(initialPhase: GamePhase.play);
       gameState.board.clear();
 
       // Crown at d6 (row 6, below river row 7). River is d7!
@@ -719,7 +719,7 @@ void main() {
     });
 
     test('summon disabled if Phantom is dead', () {
-      final gameState = GameState();
+      final gameState = GameState(initialPhase: GamePhase.play);
       gameState.board.clear();
 
       final crownPos = Position.fromNotation('d6');
@@ -728,6 +728,129 @@ void main() {
 
       expect(gameState.canCurrentPlayerSummon, isFalse);
       expect(getSummonDestinations(side: PlayerSide.blue, board: gameState.board), isEmpty);
+    });
+  });
+
+  group('Deployment Phase Rules', () {
+    test('placement is rejected outside the player rows and on occupied squares', () {
+      final gameState = GameState(); // Starts in blueDeployment
+      expect(gameState.phase, equals(GamePhase.blueDeployment));
+
+      // Select Tank
+      gameState.selectTrayPiece(PieceType.tank);
+      expect(gameState.selectedTrayPiece, equals(PieceType.tank));
+
+      // Attempt to place on row 4 (outside Blue rows 1-3)
+      final row4Pos = Position.fromNotation('a4');
+      final placedRow4 = gameState.placePiece(row4Pos);
+      expect(placedRow4, isFalse);
+      expect(gameState.board.containsKey(row4Pos), isFalse);
+      expect(gameState.blueRemainingPieces[PieceType.tank], equals(4));
+
+      // Place validly on row 1 (c1)
+      final c1 = Position.fromNotation('c1');
+      final placedC1 = gameState.placePiece(c1);
+      expect(placedC1, isTrue);
+      expect(gameState.board[c1]?.type, equals(PieceType.tank));
+      expect(gameState.blueRemainingPieces[PieceType.tank], equals(3));
+
+      // Attempt to place on occupied square (c1)
+      gameState.selectTrayPiece(PieceType.tank);
+      final placedAgain = gameState.placePiece(c1);
+      expect(placedAgain, isFalse);
+      expect(gameState.blueRemainingPieces[PieceType.tank], equals(3));
+
+      // Attempt to place on fixed Phantom square (a1)
+      final placedOnFixed = gameState.placePiece(Position.fromNotation('a1'));
+      expect(placedOnFixed, isFalse);
+    });
+
+    test('fixed pieces cannot be removed', () {
+      final gameState = GameState();
+
+      // Fixed Phantom a1 and Scepter k1
+      final a1 = Position.fromNotation('a1');
+      final k1 = Position.fromNotation('k1');
+
+      expect(gameState.removePiece(a1), isFalse);
+      expect(gameState.board[a1]?.type, equals(PieceType.phantom));
+
+      expect(gameState.removePiece(k1), isFalse);
+      expect(gameState.board[k1]?.type, equals(PieceType.scepter));
+
+      // Place and remove a non-fixed piece
+      gameState.selectTrayPiece(PieceType.tank);
+      final c1 = Position.fromNotation('c1');
+      gameState.placePiece(c1);
+      expect(gameState.blueRemainingPieces[PieceType.tank], equals(3));
+
+      // Pick it back up
+      expect(gameState.removePiece(c1), isTrue);
+      expect(gameState.board.containsKey(c1), isFalse);
+      expect(gameState.blueRemainingPieces[PieceType.tank], equals(4));
+    });
+
+    test('Done is disabled until 22 pieces are placed', () {
+      final gameState = GameState();
+      expect(gameState.canCompleteDeployment(PlayerSide.blue), isFalse);
+
+      // Attempting to complete deployment should not advance phase
+      gameState.completeDeployment();
+      expect(gameState.phase, equals(GamePhase.blueDeployment));
+    });
+
+    test('counts per type are enforced', () {
+      final gameState = GameState();
+      gameState.selectTrayPiece(PieceType.crown);
+
+      // Place 1 Crown
+      final b1 = Position.fromNotation('b1');
+      expect(gameState.placePiece(b1), isTrue);
+      expect(gameState.blueRemainingPieces[PieceType.crown], equals(0));
+
+      // Attempt to place another Crown
+      gameState.selectTrayPiece(PieceType.crown);
+      expect(gameState.selectedTrayPiece, isNull); // Cannot select when count is 0
+      final b2 = Position.fromNotation('b2');
+      expect(gameState.placePiece(b2), isFalse);
+    });
+
+    test('Auto-fill produces a valid complete layout for both sides and transitions to play', () {
+      final gameState = GameState();
+      expect(gameState.phase, equals(GamePhase.blueDeployment));
+
+      // Blue auto-fill
+      gameState.autoFill(PlayerSide.blue);
+      expect(gameState.canCompleteDeployment(PlayerSide.blue), isTrue);
+      expect(gameState.blueRemainingPieces.values.every((c) => c == 0), isTrue);
+
+      final bluePieces = gameState.board.values.where((p) => p.side == PlayerSide.blue).toList();
+      expect(bluePieces.length, equals(22));
+
+      // Blue taps Done -> transitions to passToRed
+      gameState.completeDeployment();
+      expect(gameState.phase, equals(GamePhase.passToRed));
+
+      // Red takes device -> redDeployment
+      gameState.continueFromHandover();
+      expect(gameState.phase, equals(GamePhase.redDeployment));
+
+      // Red auto-fill
+      gameState.autoFill(PlayerSide.red);
+      expect(gameState.canCompleteDeployment(PlayerSide.red), isTrue);
+      expect(gameState.redRemainingPieces.values.every((c) => c == 0), isTrue);
+
+      final redPieces = gameState.board.values.where((p) => p.side == PlayerSide.red).toList();
+      expect(redPieces.length, equals(22));
+
+      // Red taps Done -> transitions to passToBlue
+      gameState.completeDeployment();
+      expect(gameState.phase, equals(GamePhase.passToBlue));
+
+      // Blue takes device -> play starts!
+      gameState.continueFromHandover();
+      expect(gameState.phase, equals(GamePhase.play));
+      expect(gameState.currentTurn, equals(PlayerSide.blue));
     });
   });
 }
